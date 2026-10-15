@@ -1,5 +1,11 @@
 name: Unzip
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      zip:
+        description: "Zip fayl nomi"
+        required: true
+        default: "tgbot-v2.zip"
 permissions:
   contents: write
 jobs:
@@ -7,12 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          unzip -o tgbot-new.zip
-          rm tgbot-new.zip
-          rm -f .github/workflows/ci.yml
+      - name: Zipni ochish va push qilish
+        env:
+          ZIP: ${{ inputs.zip }}
+        run: |
+          set -e
+          test -f "$ZIP" || { echo "Fayl topilmadi: $ZIP"; exit 1; }
+          unzip -o "$ZIP" -x ".github/*"
+          rm -f "$ZIP"
           git config user.name "bot"
           git config user.email "bot@users.noreply.github.com"
           git add -A
-          git commit -m "Add bot files"
+          git commit -m "Update bot files" || echo "O'zgarish yo'q"
           git push
