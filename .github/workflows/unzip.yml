@@ -1,28 +1,51 @@
 name: Unzip
+
 on:
   workflow_dispatch:
-    inputs:
-      zip:
-        description: "Zip fayl nomi"
-        required: true
-        default: "tgbot-v2.zip"
+  push:
+    paths:
+      - "tgbot-new.zip"
+
 permissions:
   contents: write
+
 jobs:
   unzip:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Zipni ochish va push qilish
-        env:
-          ZIP: ${{ inputs.zip }}
+
+      - name: Zipni ochish va commit qilish
         run: |
           set -e
-          test -f "$ZIP" || { echo "Fayl topilmadi: $ZIP"; exit 1; }
-          unzip -o "$ZIP" -x ".github/*"
-          rm -f "$ZIP"
-          git config user.name "bot"
-          git config user.email "bot@users.noreply.github.com"
+          Z=tgbot-new.zip
+          if [ ! -f "$Z" ]; then
+            echo "$Z topilmadi: ochiladigan narsa yo'q."
+            exit 0
+          fi
+          rm -rf /tmp/x && mkdir /tmp/x
+          unzip -q -o "$Z" -x "__MACOSX/*" -d /tmp/x
+          # zip ichida bitta papka bo'lsa (bot/ emas), ichiga kiramiz
+          SRC=/tmp/x
+          if [ ! -d /tmp/x/bot ] && [ "$(ls -A /tmp/x | wc -l)" = "1" ] && [ -d "/tmp/x/$(ls /tmp/x)" ]; then
+            SRC="/tmp/x/$(ls /tmp/x)"
+          fi
+          if [ ! -d "$SRC/bot" ]; then
+            echo "XATO: zip ichida bot/ papkasi yo'q. Zip noto'g'ri yig'ilgan."
+            exit 1
+          fi
+          # .github ga tegmaymiz (GITHUB_TOKEN workflow fayllarini o'zgartira olmaydi)
+          rm -rf "$SRC/.github" "$SRC/.git"
+          # eski bot/ kodini tozalab, yangisini qo'yamiz (o'chirilgan fayllar qolib ketmasin)
+          rm -rf bot
+          cp -a "$SRC"/. .
+          rm -f "$Z"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Update bot files" || echo "O'zgarish yo'q"
+          if git diff --cached --quiet; then
+            echo "O'zgarish yo'q."
+            exit 0
+          fi
+          git commit -m "Update from $Z"
           git push
