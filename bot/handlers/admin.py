@@ -41,10 +41,6 @@ class Dm(StatesGroup):
     wait = State()
 
 
-class Lim(StatesGroup):
-    wait = State()
-
-
 class Ad(StatesGroup):
     wait = State()
 
@@ -82,54 +78,6 @@ async def admin(m: Message, state: FSMContext):
     await m.answer("🛠 <b>Admin panel</b>", reply_markup=HOME)
 
 
-@router.message(Command("grant"))
-async def grant_premium(m: Message, command: CommandObject):
-    """/grant <user_id> <kun> — premiumni qo'lda berish (sovg'a, to'lov muammosi)."""
-    parts = (command.args or "").split()
-    if len(parts) != 2 or not all(x.isdigit() for x in parts) or not 0 < int(parts[1]) <= 3650:
-        return await m.answer("Format: <code>/grant USER_ID KUN</code> (KUN: 1–3650)")
-    uid, days = int(parts[0]), int(parts[1])
-    if not await db.get_user(uid):
-        return await m.answer("Bunday foydalanuvchi topilmadi (u botga /start bosgan bo'lishi kerak).")
-    until = await db.extend_premium(uid, days)
-    await m.answer(f"✅ <code>{uid}</code>: premium {when(until)} gacha.")
-
-
-@router.message(Command("health"))
-async def health(m: Message):
-    """Bot holati: yt-dlp versiyasi, cookies/proksi, YouTube/Instagram kutish rejimi, disk."""
-    import importlib.metadata as md
-    import shutil
-    from pathlib import Path
-    from .. import services
-    try:
-        ytv = md.version("yt-dlp")
-    except Exception:
-        ytv = "?"
-    cookies = bool(config.COOKIES_FILE and Path(config.COOKIES_FILE).exists())
-    yl, il = services.yt_block_left(), services.ig_cool_left()
-    try:
-        du = shutil.disk_usage(config.DATA_DIR)
-        disk = f"{du.free // 2**20} MB bo'sh / {du.total // 2**20} MB"
-    except Exception:
-        disk = "?"
-    try:
-        tmp_n = sum(1 for _ in config.TMP_DIR.iterdir())
-    except Exception:
-        tmp_n = 0
-    ok, no = "✅", "❌"
-    text = ("🩺 <b>Bot holati</b>\n\n"
-            f"yt-dlp: <code>{ytv}</code>\n"
-            f"🍪 Cookies: {ok if cookies else no + ' (o`rnatilmagan)'}\n"
-            f"🌐 Proksi: {ok if config.PROXY_URL else no + ' (o`rnatilmagan)'}\n"
-            f"▶️ YouTube: {('⏳ kutish rejimi, ' + str(yl // 60) + ' daq') if yl else ok + ' ishlayapti'}\n"
-            f"📸 Instagram: {('⏳ cheklangan, ' + str(il // 60) + ' daq') if il else ok + ' ishlayapti'}\n"
-            f"🎤 Ovoz→matn (Groq): {ok if config.GROQ_API_KEY else no}\n"
-            f"💾 Disk: {disk}\n"
-            f"📁 Vaqtinchalik fayllar: {tmp_n}")
-    await m.answer(text)
-
-
 @router.message(Command("cancel"))
 async def cancel(m: Message, state: FSMContext):
     await state.clear()
@@ -148,16 +96,13 @@ async def home(call: CallbackQuery, state: FSMContext):
 async def stats(call: CallbackQuery):
     s = await db.summary()
     td, al = s["today"], s["all"]
-    pays, stars = await db.payments_sum()
     text = (
         "📊 <b>Statistika</b>\n\n"
         f"👥 Foydalanuvchilar: <b>{s['total']}</b>\n"
         f"🆕 Bugun qo'shildi: <b>{s['new_today']}</b>\n"
         f"🟢 24 soatda faol: <b>{s['online_24h']}</b>\n\n"
         f"📥 Yuklash: bugun <b>{td.get('download', 0)}</b> • jami <b>{al.get('download', 0)}</b>\n"
-        f"🎵 Qo'shiq qidirish: bugun <b>{td.get('search', 0)}</b>\n"
-        f"👥 Referal: bugun <b>{td.get('referral', 0)}</b> • jami <b>{al.get('referral', 0)}</b>\n"
-        f"💎 Faol premium: <b>{await db.premium_count()}</b> • to'lovlar: <b>{pays}</b> ({stars} ⭐)")
+        f"🎵 Qo'shiq qidirish: bugun <b>{td.get('search', 0)}</b>")
     await edit(call, text, kb([[("🔄 Yangilash", "adm:stats")], [("⬅️ Panel", "adm:home")]]))
     await call.answer()
 
@@ -177,13 +122,11 @@ async def export_csv(call: CallbackQuery):
 # ---------------- sozlamalar ----------------
 def settings_view():
     on = lambda v: "✅ YOQILGAN" if v else "❌ O'CHIQ"
-    limit = int(db.setting("daily_limit", "0") or 0)
     text = ("🔧 <b>Sozlamalar</b>\n\n"
             f"🛠 Texnik ish rejimi: {on(db.setting('maint', '0') == '1')}\n"
-            f"📌 Majburiy obuna: {on(db.setting('sub_on', '1') == '1')}\n"
-            f"📅 Kunlik limit: <b>{limit or '∞ (cheksiz)'}</b>")
+            f"📌 Majburiy obuna: {on(db.setting('sub_on', '1') == '1')}")
     return text, kb([[("🛠 Texnik ish", "st:maint")], [("📌 Majburiy obuna", "st:sub")],
-                     [("📅 Kunlik limit", "st:limit")], [("⬅️ Panel", "adm:home")]])
+                     [("⬅️ Panel", "adm:home")]])
 
 
 @router.callback_query(F.data == "adm:set")
@@ -200,24 +143,6 @@ async def toggle_setting(call: CallbackQuery):
     text, markup = settings_view()
     await edit(call, text, markup)
     await call.answer("Saqlandi")
-
-
-@router.callback_query(F.data == "st:limit")
-async def ask_limit(call: CallbackQuery, state: FSMContext):
-    await state.set_state(Lim.wait)
-    await call.message.answer("Bitta foydalanuvchi uchun kunlik yuklash limitini raqam bilan yuboring.\n"
-                              "0 = cheksiz. Bekor qilish: /cancel")
-    await call.answer()
-
-
-@router.message(Lim.wait)
-async def set_limit(m: Message, state: FSMContext):
-    if not (m.text or "").strip().isdigit():
-        return await m.answer("Faqat raqam yuboring.")
-    await db.set_setting("daily_limit", str(int(m.text.strip())))
-    await state.clear()
-    text, markup = settings_view()
-    await m.answer(text, reply_markup=markup)
 
 
 # ---------------- majburiy obuna ----------------

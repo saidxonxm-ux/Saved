@@ -23,9 +23,6 @@ MAX_VIDEO_SEC = int(os.getenv("MAX_VIDEO_MIN", "30")) * 60
 MAX_SONG_SEC = 15 * 60
 SUB_CACHE_TTL = 300                      # obuna tekshiruvi natijasi necha soniya eslab qolinadi
 
-REF_BONUS = 3                                       # har bir taklif uchun kunlik limitga qo'shiladi
-PREMIUM_STARS = int(os.getenv("PREMIUM_STARS", "100"))
-PREMIUM_DAYS = int(os.getenv("PREMIUM_DAYS", "30"))
 
 PROXY_URL = os.getenv("PROXY_URL") or None          # ixtiyoriy: yashash proksisi (YouTube uchun)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY") or None    # ixtiyoriy: ovozni matnga o'girish (Whisper)
@@ -35,3 +32,9 @@ RESOLVE_JOBS = int(os.getenv("RESOLVE_JOBS", "16"))
 UZ_BIAS = os.getenv("UZ_BIAS", "1") == "1"   # o'zbek tilidagi foydalanuvchiga o'zbekcha qo'shiqlar birinchi chiqadi
 PREFETCH = int(os.getenv("PREFETCH", "2"))   # qidiruvdan keyin nechta qo'shiq fonda oldindan yuklanadi (0 = o'chirilgan)
 SEARCH_HEDGE = float(os.getenv("SEARCH_HEDGE", "3"))   # birinchi qidiruv shuncha soniyada javob bermasa, zaxira parallel ishga tushadi
+BACKUP_HOURS = float(os.getenv("BACKUP_HOURS", "24"))   # baza zaxirasi egalarga necha soatda yuboriladi (0 = o'chirilgan)
+WARM_HOURS = float(os.getenv("WARM_HOURS", "6"))        # mashhur qo'shiqlar necha soatda tayyorlanadi (0 = o'chirilgan)
+WARM_TOP = int(os.getenv("WARM_TOP", "10"))             # bir safarda nechta mashhur so'rov tayyorlanadi
+CACHE_CHAT_ID = int(os.getenv("CACHE_CHAT_ID", "0") or 0) or None   # tayyor qo'shiqlar saqlanadigan shaxsiy kanal (yoki /warmchat orqali)
+ALERT_FAILS = int(os.getenv("ALERT_FAILS", "10"))       # 10 daqiqada shuncha yuklash xatosi bo'lsa, adminga xabar
+TRANSLIT = os.getenv("TRANSLIT", "1") == "1"            # qidiruvda lotin<->kirill variantlari

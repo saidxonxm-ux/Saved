@@ -10,19 +10,16 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, ErrorEvent
 
-from . import config, db, gate
+from . import alerts, backup, config, db, gate, warm
 from .gate import Gate
-from .handlers import admin, extra, user
+from .handlers import admin, extra, inline, ops, user
 
 log = logging.getLogger("bot")
 
 COMMANDS = {
-    "uz": [("start", "Boshlash"), ("history", "So'nggi yuklashlar"), ("ref", "Do'st taklif qilish"),
-           ("premium", "Premium"), ("settings", "Sozlamalar"), ("lang", "Til")],
-    "ru": [("start", "Начать"), ("history", "Последние загрузки"), ("ref", "Пригласить друзей"),
-           ("premium", "Премиум"), ("settings", "Настройки"), ("lang", "Язык")],
-    "en": [("start", "Start"), ("history", "Recent downloads"), ("ref", "Invite friends"),
-           ("premium", "Premium"), ("settings", "Settings"), ("lang", "Language")],
+    "uz": [("start", "Boshlash"), ("top", "Mashhur qo'shiqlar"), ("fav", "Sevimlilar"), ("settings", "Sozlamalar"), ("lang", "Til")],
+    "ru": [("start", "Начать"), ("top", "Популярные песни"), ("fav", "Избранное"), ("settings", "Настройки"), ("lang", "Язык")],
+    "en": [("start", "Start"), ("top", "Popular songs"), ("fav", "Favorites"), ("settings", "Settings"), ("lang", "Language")],
 }
 
 
@@ -49,6 +46,9 @@ async def cleanup_loop():
 
 async def on_error(event: ErrorEvent) -> bool:
     log.error("Handler xatosi: %s", event.exception, exc_info=event.exception)
+    exc = event.exception
+    alerts.notify("err:" + type(exc).__name__,
+                  f"❗️ Botda xato: {type(exc).__name__}: {str(exc)[:200]}", 900)
     return True
 
 
@@ -78,6 +78,8 @@ async def main():
     dp.message.outer_middleware(Gate())
     dp.callback_query.outer_middleware(Gate())
     dp.include_router(admin.router)   # admin birinchi
+    dp.include_router(ops.router)     # zaxira/tiklash/oldindan tayyorlash (adminlar uchun)
+    dp.include_router(inline.router)  # inline qidiruv (@bot nom)
     dp.include_router(user.router)
     dp.include_router(extra.router)
     dp.include_router(extra.group)
@@ -102,13 +104,22 @@ async def main():
         except Exception:
             pass
 
+    alerts.setup(bot, asyncio.get_running_loop())
     task = asyncio.create_task(cleanup_loop())
     flusher = asyncio.create_task(db.flush_loop())
+    backer = asyncio.create_task(backup.backup_loop(bot))
+    warmer = asyncio.create_task(warm.loop(bot))
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         task.cancel()
         flusher.cancel()
+        backer.cancel()
+        warmer.cancel()
+        try:
+            await warm.save()
+        except Exception:
+            pass
         await db.close()
         await bot.session.close()
 

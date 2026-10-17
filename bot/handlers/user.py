@@ -6,7 +6,6 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -14,10 +13,9 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup,
-                           InputMediaPhoto, InputMediaVideo, LabeledPrice, LinkPreviewOptions, Message,
-                           PreCheckoutQuery)
+                           InputMediaPhoto, InputMediaVideo, LinkPreviewOptions, Message)
 
-from .. import config, db, services
+from .. import config, db, services, warm
 from ..gate import missing_channels
 from ..i18n import t
 
@@ -105,21 +103,6 @@ def caption(title: str, uname: str) -> str:
     base = esc((title or "").strip()[:180])
     tail = f"📥 @{uname}"
     return f"{base}\n\n{tail}" if base else tail
-
-
-async def within_limit(msg: Message, uid: int, lang: str) -> bool:
-    """Kunlik limit: 0 = cheksiz (bepul davr). Premium cheksiz, referal bonuslari limitga qo'shiladi."""
-    limit = int(db.setting("daily_limit", "0") or 0)
-    if limit <= 0 or uid in config.ADMIN_IDS:
-        return True
-    u = await db.get_user(uid)
-    if db.is_premium(u):
-        return True
-    limit += int(u["bonus"] or 0) if u is not None else 0
-    if await db.usage_get(uid) >= limit:
-        await msg.answer(t(lang, "limit", n=limit))
-        return False
-    return True
 
 
 async def source_file(call: CallbackQuery, key: str, bot: Bot) -> Path | None:
@@ -257,25 +240,8 @@ async def welcome_kb(bot: Bot, lang: str) -> InlineKeyboardMarkup:
     ])
 
 
-async def apply_referral(m: Message, bot: Bot, arg: str) -> None:
-    """/start ref_<id>: yangi foydalanuvchi bo'lsa, taklif qilganga bonus beradi."""
-    if not (arg.startswith("ref_") and arg[4:].isdigit()):
-        return
-    ref = int(arg[4:])
-    if not await db.set_referrer(m.from_user.id, ref):
-        return
-    await db.add_bonus(ref, config.REF_BONUS)
-    await db.incr("referral")
-    try:
-        row = await db.get_user(ref)
-        await bot.send_message(ref, t(row["lang"] if row else "uz", "ref_notify", b=config.REF_BONUS))
-    except Exception:
-        pass
-
-
 @router.message(CommandStart())
-async def start(m: Message, u, lang: str, bot: Bot, command: CommandObject):
-    await apply_referral(m, bot, (command.args or "").strip())
+async def start(m: Message, u, lang: str, bot: Bot):
     if not u["lang_set"]:
         await m.answer(t(lang, "lang_pick"), reply_markup=lang_kb())
         return
@@ -356,90 +322,6 @@ async def on_setting(call: CallbackQuery, lang: str):
         pass
 
 
-# ---------------- tarix / referal / premium ----------------
-def fmt_date(ts: int) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
-
-
-def paywall_on() -> bool:
-    """Kunlik limit qo'yilgan bo'lsa (admin paneli) pullik rejim yoqilgan hisoblanadi."""
-    return int(db.setting("daily_limit", "0") or 0) > 0
-
-
-@router.message(Command("history"))
-async def cmd_history(m: Message, lang: str):
-    rows = await db.history_list(m.from_user.id, 10)
-    if not rows:
-        return await m.answer(t(lang, "history_empty"))
-    lines = []
-    for i, r in enumerate(rows, 1):
-        name = esc((r["title"] or r["url"])[:60])
-        lines.append(str(i) + ". <a href=\"" + esc(r["url"]) + "\">" + name + "</a>")
-    await m.answer(t(lang, "history_title") + "\n\n" + "\n".join(lines),
-                   link_preview_options=LinkPreviewOptions(is_disabled=True))
-
-
-@router.message(Command("ref"))
-async def cmd_ref(m: Message, u, lang: str, bot: Bot):
-    uid = m.from_user.id
-    link = f"https://t.me/{(await bot.me()).username}?start=ref_{uid}"
-    await m.answer(t(lang, "ref_text", b=config.REF_BONUS, link=link, n=await db.ref_count(uid),
-                     bonus=int(u["bonus"] or 0)),
-                   link_preview_options=LinkPreviewOptions(is_disabled=True))
-
-
-@router.message(Command("premium"))
-async def cmd_premium(m: Message, u, lang: str):
-    parts = []
-    if db.is_premium(u):
-        parts.append(t(lang, "premium_active", until=fmt_date(int(u["premium_until"]))))
-    if not paywall_on():   # bepul davr: sotmaymiz
-        parts.append(t(lang, "free_now"))
-        return await m.answer("\n\n".join(parts))
-    parts.append(t(lang, "premium_info", d=config.PREMIUM_DAYS, stars=config.PREMIUM_STARS))
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t(lang, "btn_buy", stars=config.PREMIUM_STARS), callback_data="buy")]])
-    await m.answer("\n\n".join(parts), reply_markup=kb)
-
-
-@router.callback_query(F.data == "buy")
-async def buy_premium(call: CallbackQuery, bot: Bot, lang: str):
-    await call.answer()
-    if not paywall_on():
-        return
-    await bot.send_invoice(
-        chat_id=call.from_user.id, title=t(lang, "inv_title"), description=t(lang, "inv_desc", d=config.PREMIUM_DAYS),
-        payload=f"prem:{call.from_user.id}", provider_token="", currency="XTR",
-        prices=[LabeledPrice(label=t(lang, "inv_title"), amount=config.PREMIUM_STARS)])
-
-
-@router.pre_checkout_query()
-async def pre_checkout(q: PreCheckoutQuery):
-    ok = (q.currency == "XTR" and q.invoice_payload == f"prem:{q.from_user.id}"
-          and q.total_amount == config.PREMIUM_STARS)
-    if ok:
-        return await q.answer(ok=True)
-    row = await db.get_user(q.from_user.id)
-    await q.answer(ok=False, error_message=t(row["lang"] if row else "uz", "pay_err"))
-
-
-@router.message(F.successful_payment)
-async def on_paid(m: Message, bot: Bot, lang: str):
-    p = m.successful_payment
-    uid = m.from_user.id
-    if not await db.add_payment(uid, p.telegram_payment_charge_id, p.total_amount, config.PREMIUM_DAYS):
-        return   # takroriy xabar: premium ikki marta berilmaydi
-    until = await db.extend_premium(uid, config.PREMIUM_DAYS)
-    await db.incr("premium_buy")
-    await m.answer(t(lang, "premium_thanks", until=fmt_date(until)))
-    who = esc(m.from_user.username or m.from_user.first_name or "")
-    for aid in config.ADMIN_IDS:
-        try:
-            await bot.send_message(aid, f"💰 Premium: <code>{uid}</code> {who} — {p.total_amount} ⭐")
-        except Exception:
-            pass
-
-
 # ---------------- link orqali yuklash ----------------
 YT_RE = re.compile(r"(?:youtube\.com/(?:watch\?(?:[^\s]*&)?v=|embed/|live/)|youtu\.be/)([\w-]{11})")
 
@@ -463,8 +345,6 @@ async def record(uid: int, key: str, url: str, title: str, items: list) -> None:
         await db.cache_put(key, items, title)
     await db.incr("download")
     await db.bump_downloads(uid)
-    await db.usage_add(uid)
-    await db.history_add(uid, url, title)
 
 
 IG_RE = re.compile(r"instagram\.com/(?:[\w.]+/)?(?:p|reel|reels|tv)/([\w-]+)", re.I)
@@ -486,8 +366,6 @@ STORY_RE = re.compile(r"instagram\.com/stories/(?!highlights)([\w.]+)", re.I)
 
 
 async def handle_link(m: Message, bot: Bot, lang: str, url: str, height: int, uid: int):
-    if not await within_limit(m, uid, lang):
-        return
     story = STORY_RE.search(url)
     if story:
         # bitta story havolasi bo'lsa ham, foydalanuvchining hamma faol stories'i olinadi
@@ -539,13 +417,7 @@ async def handle_link(m: Message, bot: Bot, lang: str, url: str, height: int, ui
                 if items:
                     await status.delete()
                     return await record(uid, key, url, alt["title"], [items])
-            why = str(e).lower()
-            fail = "dl_fail"
-            if "instagram" in url.lower() and ("login" in why or "cheklangan" in why or "rate" in why):
-                fail = "dl_ig"
-            elif services.is_youtube(url) and any(x in why for x in ("403", "forbidden", "bloklangan", "sign in", "bot")):
-                fail = "dl_yt"
-            return await status.edit_text(t(lang, fail))
+            return await status.edit_text(t(lang, "dl_fail"))
         if not res.files:
             return await status.edit_text(t(lang, "dl_empty"))
         try:
@@ -669,7 +541,19 @@ async def song_from_video(msg: Message, src: Path, lang: str, uid: int):
         return await status.edit_text(t(lang, "music_none"))
     await status.delete()
     q = f"{info['artist']} - {info['title']}"
-    await send_song(msg, lang, uid, f"ytsearch1:{q}", f"q:{q.lower()[:80]}", q)
+    if await send_song(msg, lang, uid, f"ytsearch1:{q}", f"q:{q.lower()[:80]}", q, quiet_fail=True):
+        return
+    # to'liq qo'shiq topilmadi (YouTube bloklangan, SoundCloud'da yo'q): videoning o'z audiosini yuboramiz
+    out = await services.to_mp3(src)
+    if not out:
+        return await msg.answer(t(lang, "song_fail"))
+    try:
+        if out.stat().st_size > config.MAX_UPLOAD:
+            return await msg.answer(t(lang, "too_big"))
+        await msg.answer_audio(FSInputFile(out), title=info["title"][:60], performer=info["artist"][:60],
+                               caption=t(lang, "music_fallback"))
+    finally:
+        out.unlink(missing_ok=True)
 
 
 async def voice_search(msg: Message, src: Path, speech_lang: str, lang: str):
@@ -793,13 +677,16 @@ async def on_action(call: CallbackQuery, bot: Bot, lang: str):
 
 
 # ---------------- qo'shiq qidirish va yuklash ----------------
-def song_kb(uname: str, lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+def song_kb(uname: str, lang: str, sid: int | None = None, faved: bool = False) -> InlineKeyboardMarkup:
+    rows = [
         [InlineKeyboardButton(text="🎧 8D", callback_data="fx:8d"),
          InlineKeyboardButton(text="🏟 Concert Hall", callback_data="fx:hall")],
         [InlineKeyboardButton(text="🐢 Slowed", callback_data="fx:slow")],
-        [InlineKeyboardButton(text=t(lang, "btn_group"), url=f"https://t.me/{uname}?startgroup=true")],
-    ])
+    ]
+    if sid:
+        rows.append([InlineKeyboardButton(text=t(lang, "fav_on" if faved else "fav_off"), callback_data=f"fv:{sid}")])
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_group"), url=f"https://t.me/{uname}?startgroup=true")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 FX = {
@@ -841,17 +728,24 @@ async def song_fx(call: CallbackQuery, bot: Bot, lang: str):
                 out.unlink(missing_ok=True)
 
 
-async def send_song(msg: Message, lang: str, uid: int, target: str, cache_key: str, title: str | None = None):
-    if not await within_limit(msg, uid, lang):
-        return
+def song_label(song) -> str:
+    return f"{song.artist} - {song.title}" if song.artist else song.title
+
+
+async def send_song(msg: Message, lang: str, uid: int, target: str, cache_key: str,
+                    title: str | None = None, quiet_fail: bool = False) -> bool:
+    """Qo'shiqni yuboradi. Muvaffaqiyatli bo'lsa True. quiet_fail=True bo'lsa, xato xabari yuborilmaydi."""
     uname = (await msg.bot.me()).username
-    cap, kb = t(lang, "song_caption", bot=uname), song_kb(uname, lang)
+    cap = t(lang, "song_caption", bot=uname)
     row = await db.cache_get(cache_key)
     if row:
         try:
+            sid = await db.song_seen(cache_key, target, title or row["title"] or "")
+            kb = song_kb(uname, lang, sid, await db.fav_has(uid, sid))
             await msg.answer_audio(json.loads(row["payload"])[0][1], caption=cap, reply_markup=kb)
             await db.incr("download")
-            return
+            await db.song_bump(sid)
+            return True
         except TelegramBadRequest:
             await db.cache_del(cache_key)
     status = None if services.prefetched_ready(target) else await msg.answer(t(lang, "song_wait"))
@@ -860,23 +754,128 @@ async def send_song(msg: Message, lang: str, uid: int, target: str, cache_key: s
     except Exception as e:
         log.warning("Qo'shiq xato (%s): %s", target, str(e)[:300])
         song = None
+
+    async def fail(key: str) -> bool:
+        if quiet_fail:
+            if status:
+                try:
+                    await status.delete()
+                except TelegramBadRequest:
+                    pass
+        else:
+            await (status.edit_text(t(lang, key)) if status else msg.answer(t(lang, key)))
+        return False
+
     if not song:
-        return await (status.edit_text(t(lang, "song_fail")) if status else msg.answer(t(lang, "song_fail")))
+        return await fail("song_fail")
     try:
         if song.path.stat().st_size > config.MAX_UPLOAD:
-            return await (status.edit_text(t(lang, "too_big")) if status else msg.answer(t(lang, "too_big")))
+            return await fail("too_big")
+        label = song_label(song)
+        sid = await db.song_seen(cache_key, target, label)
+        kb = song_kb(uname, lang, sid, await db.fav_has(uid, sid))
         t_up = time.monotonic()
         sent = await msg.answer_audio(FSInputFile(song.path, chunk_size=512 * 1024),
                                       title=song.title[:60], performer=song.artist[:60], caption=cap, reply_markup=kb)
         log.info("TIMING telegramga yuborish %.1fs (%d KB)", time.monotonic() - t_up, song.path.stat().st_size // 1024)
-        await db.cache_put(cache_key, [["audio", sent.audio.file_id]], song.title)
+        await db.cache_put(cache_key, [["audio", sent.audio.file_id]], label)
         await db.incr("download")
         await db.bump_downloads(uid)
-        await db.usage_add(uid)
+        await db.song_bump(sid)
         if status:
             await status.delete()
+        return True
     finally:
         song.path.unlink(missing_ok=True)
+
+
+# ---------------- /top va sevimlilar ----------------
+FAV_PAGE = 8
+
+
+@router.message(Command("top"))
+async def cmd_top(m: Message, lang: str):
+    rows = await db.top_songs(10)
+    if not rows:
+        return await m.answer(t(lang, "top_empty"))
+    lines = [f"{i}. {esc(r['title'][:60])} — {r['n']}×" for i, r in enumerate(rows, 1)]
+    btns = [InlineKeyboardButton(text=str(i), callback_data=f"tp:{r['id']}") for i, r in enumerate(rows, 1)]
+    kb = InlineKeyboardMarkup(inline_keyboard=[btns[i:i + 5] for i in range(0, len(btns), 5)])
+    await m.answer(t(lang, "top_title") + "\n\n" + "\n".join(lines), reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("tp:"))
+async def pick_saved(call: CallbackQuery, lang: str):
+    try:
+        sid = int(call.data.split(":", 1)[1])
+    except ValueError:
+        return await call.answer()
+    row = await db.song_get(sid)
+    if not row or not isinstance(call.message, Message):
+        return await call.answer(t(lang, "file_old"), show_alert=True)
+    async with job(call.from_user.id) as ok:
+        if not ok:
+            return await call.answer(t(lang, "busy"), show_alert=True)
+        await call.answer()
+        await send_song(call.message, lang, call.from_user.id, row["target"], row["ckey"], row["title"])
+
+
+async def fav_view(uid: int, lang: str, page: int):
+    total = await db.fav_count(uid)
+    if not total:
+        return t(lang, "fav_empty"), None
+    pages = (total + FAV_PAGE - 1) // FAV_PAGE
+    page = max(0, min(page, pages - 1))
+    rows = await db.fav_list(uid, page * FAV_PAGE, FAV_PAGE)
+    start = page * FAV_PAGE + 1
+    lines = [f"{i}. {esc(r['title'][:60])}" for i, r in enumerate(rows, start)]
+    btns = [InlineKeyboardButton(text=str(i), callback_data=f"tp:{r['id']}") for i, r in enumerate(rows, start)]
+    kbrows = [btns[i:i + 4] for i in range(0, len(btns), 4)]
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"fl:{page - 1}"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"fl:{page + 1}"))
+    if nav:
+        kbrows.append(nav)
+    return f"{t(lang, 'fav_title')} ({total})\n\n" + "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kbrows)
+
+
+@router.message(Command("fav"))
+async def cmd_fav(m: Message, lang: str):
+    text, kb = await fav_view(m.from_user.id, lang, 0)
+    await m.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("fl:"))
+async def fav_page(call: CallbackQuery, lang: str):
+    try:
+        page = int(call.data.split(":", 1)[1])
+    except ValueError:
+        return await call.answer()
+    text, kb = await fav_view(call.from_user.id, lang, page)
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("fv:"))
+async def fav_toggle(call: CallbackQuery, lang: str):
+    try:
+        sid = int(call.data.split(":", 1)[1])
+    except ValueError:
+        return await call.answer()
+    if not await db.song_get(sid):
+        return await call.answer(t(lang, "file_old"), show_alert=True)
+    added = await db.fav_toggle(call.from_user.id, sid)
+    uname = (await call.bot.me()).username
+    try:
+        await call.message.edit_reply_markup(reply_markup=song_kb(uname, lang, sid, added))
+    except TelegramBadRequest:
+        pass
+    await call.answer(t(lang, "fav_added" if added else "fav_removed"))
 
 
 PAGE = 10
@@ -982,6 +981,7 @@ async def show_search(msg: Message, q: str, lang: str, extra: list[str] | None =
     if not results:
         return await status.edit_text(t(lang, "search_none"))
     await db.incr("search")
+    warm.note_query(q)   # mashhur so'rovlarni sanaymiz (oldindan tayyorlash uchun)
     sid = uuid.uuid4().hex[:8]
     SEARCH[sid] = {"q": q, "res": results, "hide": hide_q}
     await status.edit_text(search_text(q, results, 0, hide_q), reply_markup=search_kb(sid, results, 0))

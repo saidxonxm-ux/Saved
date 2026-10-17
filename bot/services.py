@@ -11,7 +11,7 @@ from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from . import config
+from . import alerts, config, translit
 
 try:
     from shazamio import Shazam
@@ -134,17 +134,15 @@ YT_HOSTS = ("youtube.com", "youtu.be")
 IMG_EXT = {"jpg", "jpeg", "png", "webp"}
 NO_SCRAPE = ("instagram.com", "facebook.com", "fb.watch", "youtube.com", "youtu.be", "tiktok.com")
 YT_CLIENTS = [["android_vr"], ["tv"], None]   # None = standart
+# bu xabarlar YouTube serverni bloklaganini bildiradi: boshqa klient sinaladi, hammasi o'tmasa kutish rejimi yoqiladi
+YT_BLOCK_HINTS = ("sign in", "bot", "not available", "reloaded", "403", "forbidden", "unable to download",
+                  "po token", "429", "too many requests")
 _best = [0]
 _yt_block_until = [0.0]   # YouTube bloklasa, shu vaqtgacha urinmaymiz (sekinlashishning oldini oladi)
 
 
 def yt_blocked() -> bool:
     return time.monotonic() < _yt_block_until[0]
-
-
-def yt_block_left() -> int:
-    """YouTube kutish rejimi tugashigacha soniyalar (0 = bloklanmagan)."""
-    return max(0, int(_yt_block_until[0] - time.monotonic()))
 
 
 def yt_auth() -> bool:
@@ -201,13 +199,14 @@ def _with_clients(target: str, fn):
         except DownloadError as e:
             last = e
             msg = str(e).lower()
-            if ("sign in" not in msg and "bot" not in msg and "not available" not in msg
-                    and "403" not in msg and "forbidden" not in msg):
+            if not any(k in msg for k in YT_BLOCK_HINTS):
                 raise
-            log.info("YouTube klient %s o'tmadi", YT_CLIENTS[idx])
-    wait = 600 if yt_auth() else 3600   # cookies/proksi bo'lmasa, tez-tez urinish foydasiz: har urinish foydalanuvchini ~6 s kutdiradi (1 soatdan keyin qayta tekshiriladi)
+            log.info("YouTube klient %s o'tmadi: %s", YT_CLIENTS[idx], msg[:80])
+    wait = 600 if yt_auth() else 6 * 3600   # cookies/proksi bo'lmasa, tez-tez urinish foydasiz: har urinish foydalanuvchini ~6 s kutdiradi
     _yt_block_until[0] = time.monotonic() + wait
     log.warning("YouTube bloklangan: %d daqiqa SoundCloud'ga o'tildi (cookies/proksi: %s)", wait // 60, yt_auth())
+    alerts.notify("yt_block", "⚠️ YouTube serverni blokladi. Qo'shiqlar SoundCloud'dan olinmoqda, YouTube havolalari ishlamaydi.\n"
+                              "Yechim: yashash proksisi (PROXY_URL) yoki YouTube cookies.", 6 * 3600)
     raise last
 
 
@@ -265,10 +264,6 @@ _ig_cool = [0.0]   # Instagram anonim so'rovni cheklasa, shu vaqtgacha yt-dlp bi
 
 def ig_cooling() -> bool:
     return time.monotonic() < _ig_cool[0]
-
-
-def ig_cool_left() -> int:
-    return max(0, int(_ig_cool[0] - time.monotonic()))
 
 
 def _ig_limited(err) -> bool:
@@ -420,6 +415,8 @@ def _download(url: str, height: int = 720, max_items: int = 10) -> Result:
                 if _ig_limited(e):   # Instagram bu IP'ni vaqtincha cheklagan: 10 daqiqa bekorga so'ramaymiz
                     _ig_cool[0] = time.monotonic() + 600
                     log.warning("Instagram anonim so'rovni cheklagan: 10 daqiqa yt-dlp o'tkazib yuboriladi")
+                    alerts.notify("ig_limit", "⚠️ Instagram serverni cheklagan (login talab qilyapti). Reels/postlar yuklanmasligi mumkin.\n"
+                                              "Yechim: yashash proksisi (PROXY_URL).", 3 * 3600)
         if config.PROXY_URL:   # 2) proksi orqali
             try:
                 return _with_clients(url, lambda cl: _download_once(url, height, cl, max_items, False, True))
@@ -442,9 +439,28 @@ def _download(url: str, height: int = 720, max_items: int = 10) -> Result:
     return _with_clients(url, lambda cl: _download_once(url, height, cl, max_items, True))
 
 
+_FAILS: list[float] = []
+
+
+def note_fail() -> None:
+    """Yuklash xatosi: 10 daqiqada ALERT_FAILS tadan oshsa, adminga xabar."""
+    now = time.monotonic()
+    _FAILS.append(now)
+    del _FAILS[:-100]
+    recent = sum(1 for x in _FAILS if now - x < 600)
+    if recent >= config.ALERT_FAILS:
+        alerts.notify("fails", f"❗️ Yuklash xatolari ko'p: oxirgi 10 daqiqada {recent} ta. Manbalar (YouTube/Instagram) bloklangan bo'lishi mumkin.", 1800)
+
+
 async def download(url: str, height: int = 720, max_items: int = 10) -> Result:
     async with JOBS:
-        return await asyncio.to_thread(_download, url, height, max_items)
+        try:
+            return await asyncio.to_thread(_download, url, height, max_items)
+        except Skipped:
+            raise
+        except Exception:
+            note_fail()
+            raise
 
 
 # ---------------- tezkor yo'l: to'g'ridan-to'g'ri havola ----------------
@@ -572,6 +588,34 @@ def _sc_download(q: str) -> Song | None:
     return _finish_song(prefix, got)
 
 
+def _fold(s: str) -> str:
+    """Diakritikalarni olib tashlaydi: 'Cumamız Mübarek' -> 'Cumamiz Mubarek' (SoundCloud'da shunday ko'p yoziladi)."""
+    import unicodedata
+    s = s.replace("ı", "i").replace("İ", "I").replace("ə", "a").replace("Ə", "A")
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+def _sc_variants(q: str) -> list[str]:
+    """SoundCloud uchun bir nechta qidiruv varianti (tartib bilan, takrorsiz, ko'pi bilan 4 ta)."""
+    cleaned = _clean_query(q) or q
+    out = [cleaned]
+    title = ""
+    if " - " in cleaned:
+        artist, title = (x.strip() for x in cleaned.split(" - ", 1))
+        out.append(f"{artist} {title}")
+    folded = _fold(cleaned)
+    out.append(folded)
+    if len(title) >= 10:   # faqat nomi: ijrochi noto'g'ri aniqlangan bo'lishi mumkin (juda qisqa nomlar chalg'itadi)
+        out.append(title)
+    seen, res = set(), []
+    for v in out:
+        k = v.lower().strip()
+        if k and k not in seen:
+            seen.add(k)
+            res.append(v.strip())
+    return res[:4]
+
+
 def _song(target: str, title: str | None) -> Song | None:
     try:
         song = _with_clients(target, lambda cl: _song_once(target, cl))
@@ -583,11 +627,11 @@ def _song(target: str, title: str | None) -> Song | None:
     q = title or (target.split(":", 1)[1] if target.startswith("ytsearch") else None)
     if not q:
         return None
-    cleaned = _clean_query(q)
-    song = _sc_download(cleaned) if cleaned else None
-    if not song and cleaned != q:
-        song = _sc_download(q)
-    return song
+    for v in _sc_variants(q):
+        song = _sc_download(v)
+        if song:
+            return song
+    return None
 
 
 async def download_song(target: str, title: str | None = None) -> Song | None:
@@ -595,6 +639,8 @@ async def download_song(target: str, title: str | None = None) -> Song | None:
         t0 = time.monotonic()
         song = await asyncio.to_thread(_song, target, title)
         log.info("TIMING yuklash %.1fs ok=%s %r", time.monotonic() - t0, bool(song), (title or target)[:40])
+        if not song:
+            note_fail()
         return song
 
 
@@ -721,7 +767,10 @@ def _merge(lists: list[list[dict]], limit: int) -> list[dict]:
 async def search_multi(queries: list[str], lang: str, limit: int = 20) -> list[dict]:
     """Bir nechta so'rov (masalan, ovozdan olingan bir nechta taxmin) natijalarini birlashtiradi.
     O'zbek tilida 'uzbek' qo'shilgan so'rov natijalari birinchi chiqadi."""
-    queries = [q for q in queries if q][:3]
+    queries = [q for q in queries if q]
+    if config.TRANSLIT and lang == "uz":   # "Шохрух" va "Shoxrux" ikkalasi ham qidiriladi
+        queries = translit.expand(queries)
+    queries = queries[:3]
     bias = config.UZ_BIAS and lang == "uz"
     biased = [f"{q} uzbek" for q in queries] if bias else []
     res = await asyncio.gather(*(search(v) for v in biased + queries), return_exceptions=True)

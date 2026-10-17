@@ -9,5 +9,4 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -U -r requirements.txt
 COPY . .
-# Har ishga tushganda yt-dlp yangilanadi (Instagram/YouTube tez-tez o'zgaradi). Tarmoq bo'lmasa ham bot ishlayveradi.
-CMD ["sh", "-c", "pip install --no-cache-dir -q -U 'yt-dlp[default]' || true; exec python -m bot.main"]
+CMD ["python", "-m", "bot.main"]

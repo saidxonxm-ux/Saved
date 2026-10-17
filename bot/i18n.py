@@ -17,7 +17,6 @@ S = {
  "maint": "🛠 Bot texnik ishlar uchun vaqtincha o'chirilgan. Birozdan so'ng qayta urinib ko'ring.",
  "flood": "⏳ Sekinroq, iltimos.",
  "busy": "⏳ Oldingi so'rovingiz tugasin.",
- "limit": "⛔ Kunlik limit ({n} ta) tugadi. Ertaga qayta urinib ko'ring.",
  "dl_start": "⏳ Yuklanmoqda...",
  "dl_fail": "❌ Yuklab bo'lmadi. Link noto'g'ri, profil yopiq yoki sayt vaqtincha bloklagan bo'lishi mumkin.",
  "dl_empty": "❌ Hech narsa topilmadi.",
@@ -66,7 +65,6 @@ S = {
  "maint": "🛠 Бот временно на техобслуживании. Попробуйте позже.",
  "flood": "⏳ Помедленнее, пожалуйста.",
  "busy": "⏳ Дождитесь завершения предыдущего запроса.",
- "limit": "⛔ Дневной лимит ({n}) исчерпан. Попробуйте завтра.",
  "dl_start": "⏳ Загружаю...",
  "dl_fail": "❌ Не удалось скачать. Ссылка неверна, профиль закрыт или сайт временно блокирует.",
  "dl_empty": "❌ Ничего не найдено.",
@@ -115,7 +113,6 @@ S = {
  "maint": "🛠 The bot is under maintenance. Please try again later.",
  "flood": "⏳ Slow down, please.",
  "busy": "⏳ Wait for your previous request to finish.",
- "limit": "⛔ Daily limit ({n}) reached. Try again tomorrow.",
  "dl_start": "⏳ Downloading...",
  "dl_fail": "❌ Download failed. The link may be invalid, the profile private, or the site is blocking requests.",
  "dl_empty": "❌ Nothing found.",
@@ -149,40 +146,19 @@ S = {
 }
 
 S["uz"].update({
- "limit": "⛔ Kunlik limit ({n} ta) tugadi.\n💎 /premium — limitsiz\n👥 /ref — bonus oling",
  "btn_gif": "🎞 GIF", "btn_cover": "🖼 Muqova",
  "tool_fail": "❌ Bajarib bo'lmadi.",
  "yt_pick": "🎬 Sifatni tanlang:",
- "ref_text": "👥 <b>Do'stlarni taklif qiling</b>\n\nHar bir do'st uchun kunlik limitingiz <b>+{b}</b> ga oshadi.\n\n🔗 Sizning havolangiz:\n{link}\n\n👤 Taklif qilinganlar: <b>{n}</b>\n🎁 Jami bonus: <b>+{bonus}</b>",
- "ref_notify": "🎉 Havolangiz orqali yangi foydalanuvchi qo'shildi! Kunlik limit +{b}.",
- "premium_info": "💎 <b>Premium</b> — {d} kun davomida kunlik limitsiz yuklash.\nNarxi: <b>{stars} ⭐</b>",
- "btn_buy": "💎 Sotib olish ({stars} ⭐)",
- "premium_thanks": "✅ To'lov qabul qilindi! Premium {until} gacha faol.",
- "premium_active": "✅ Premium faol: {until} gacha.",
 })
 S["ru"].update({
- "limit": "⛔ Дневной лимит ({n}) исчерпан.\n💎 /premium — без лимита\n👥 /ref — получить бонус",
  "btn_gif": "🎞 GIF", "btn_cover": "🖼 Обложка",
  "tool_fail": "❌ Не удалось выполнить.",
  "yt_pick": "🎬 Выберите качество:",
- "ref_text": "👥 <b>Приглашайте друзей</b>\n\nЗа каждого друга дневной лимит растёт на <b>+{b}</b>.\n\n🔗 Ваша ссылка:\n{link}\n\n👤 Приглашено: <b>{n}</b>\n🎁 Всего бонус: <b>+{bonus}</b>",
- "ref_notify": "🎉 По вашей ссылке пришёл новый пользователь! Лимит +{b}.",
- "premium_info": "💎 <b>Премиум</b> — {d} дн. без дневного лимита.\nЦена: <b>{stars} ⭐</b>",
- "btn_buy": "💎 Купить ({stars} ⭐)",
- "premium_thanks": "✅ Оплата принята! Премиум активен до {until}.",
- "premium_active": "✅ Премиум активен до {until}.",
 })
 S["en"].update({
- "limit": "⛔ Daily limit ({n}) reached.\n💎 /premium — unlimited\n👥 /ref — get a bonus",
  "btn_gif": "🎞 GIF", "btn_cover": "🖼 Cover",
  "tool_fail": "❌ Couldn't do that.",
  "yt_pick": "🎬 Choose quality:",
- "ref_text": "👥 <b>Invite friends</b>\n\nEach friend raises your daily limit by <b>+{b}</b>.\n\n🔗 Your link:\n{link}\n\n👤 Invited: <b>{n}</b>\n🎁 Total bonus: <b>+{bonus}</b>",
- "ref_notify": "🎉 A new user joined via your link! Daily limit +{b}.",
- "premium_info": "💎 <b>Premium</b> — {d} days with no daily limit.\nPrice: <b>{stars} ⭐</b>",
- "btn_buy": "💎 Buy ({stars} ⭐)",
- "premium_thanks": "✅ Payment received! Premium active until {until}.",
- "premium_active": "✅ Premium active until {until}.",
 })
 
 S["uz"].update({"voice_heard": "🗣 Eshitdim: «{q}»", "voice_none": "😕 Ovozni tushunmadim. Aniqroq gapiring yoki qo'shiq nomini yozing."})
@@ -293,32 +269,29 @@ S["ru"]["fx_wait"] = "🎛 Готовлю..."
 S["en"]["fx_wait"] = "🎛 Preparing..."
 
 
-S["uz"].update({
- "free_now": "🎁 Hozircha bot <b>to'liq bepul</b> — kunlik limit yo'q.\nPremium va bonuslar keyinroq, limit joriy etilganda kerak bo'ladi. Do'stlarni taklif qilsangiz bonuslar oldindan yig'iladi: /ref",
- "inv_title": "💎 Premium",
- "inv_desc": "{d} kun davomida kunlik limitsiz yuklash",
- "pay_err": "Bu to'lovni qabul qilib bo'lmadi. Qaytadan /premium bosing.",
- "dl_ig": "⚠️ Instagram hozir so'rovlarni cheklayapti. Bir ozdan keyin qayta urinib ko'ring (post ochiq bo'lishi kerak).",
- "dl_yt": "⚠️ YouTube hozir bu videoni bermayapti. Boshqa link yoki qo'shiq nomini yozib ko'ring.",
-})
-S["ru"].update({
- "free_now": "🎁 Сейчас бот <b>полностью бесплатный</b> — дневного лимита нет.\nПремиум и бонусы понадобятся позже, когда появится лимит. Приглашайте друзей — бонусы копятся заранее: /ref",
- "inv_title": "💎 Премиум",
- "inv_desc": "{d} дн. без дневного лимита",
- "pay_err": "Не удалось принять этот платёж. Нажмите /premium ещё раз.",
- "dl_ig": "⚠️ Instagram сейчас ограничивает запросы. Попробуйте чуть позже (пост должен быть открытым).",
- "dl_yt": "⚠️ YouTube сейчас не отдаёт это видео. Попробуйте другую ссылку или напишите название песни.",
-})
-S["en"].update({
- "free_now": "🎁 The bot is <b>completely free</b> for now — no daily limit.\nPremium and bonuses will matter later, once a limit is introduced. Invite friends and your bonus builds up in advance: /ref",
- "inv_title": "💎 Premium",
- "inv_desc": "{d} days with no daily limit",
- "pay_err": "This payment could not be accepted. Press /premium again.",
- "dl_ig": "⚠️ Instagram is limiting requests right now. Please try again a bit later (the post must be public).",
- "dl_yt": "⚠️ YouTube isn't serving this video right now. Try another link or type the song name.",
-})
-
-
 def t(lang: str, key: str, **kw) -> str:
     s = S.get(lang, S["uz"]).get(key) or S["uz"][key]
     return s.format(**kw) if kw else s
+
+
+S["uz"].update({
+ "top_title": "🔥 <b>Eng ko'p yuklangan qo'shiqlar</b>", "top_empty": "Hali ma'lumot yo'q. Qo'shiq qidirib ko'ring 🎵",
+ "fav_title": "❤️ <b>Sevimli qo'shiqlaringiz</b>", "fav_empty": "Sevimlilar bo'sh.\nQo'shiq tagidagi 🤍 tugmasini bosing.",
+ "fav_off": "🤍 Sevimli", "fav_on": "❤️ Sevimlilarda", "fav_added": "❤️ Sevimlilarga qo'shildi", "fav_removed": "Sevimlilardan olib tashlandi",
+ "music_fallback": "ℹ️ To'liq qo'shiq topilmadi. Videodagi audio yuborildi.",
+})
+S["ru"].update({
+ "top_title": "🔥 <b>Самые скачиваемые песни</b>", "top_empty": "Пока нет данных. Попробуйте найти песню 🎵",
+ "fav_title": "❤️ <b>Ваши любимые песни</b>", "fav_empty": "Список пуст.\nНажмите 🤍 под песней.",
+ "fav_off": "🤍 В избранное", "fav_on": "❤️ В избранном", "fav_added": "❤️ Добавлено в избранное", "fav_removed": "Удалено из избранного",
+ "music_fallback": "ℹ️ Полную песню найти не удалось. Отправлено аудио из видео.",
+})
+S["en"].update({
+ "top_title": "🔥 <b>Most downloaded songs</b>", "top_empty": "No data yet. Try searching for a song 🎵",
+ "fav_title": "❤️ <b>Your favorite songs</b>", "fav_empty": "Nothing here yet.\nTap 🤍 under a song.",
+ "fav_off": "🤍 Favorite", "fav_on": "❤️ In favorites", "fav_added": "❤️ Added to favorites", "fav_removed": "Removed from favorites",
+ "music_fallback": "ℹ️ Couldn't find the full song. Sent the audio from the video.",
+})
+S["uz"]["help"] += "\n\n🔥 /top — eng mashhur qo'shiqlar\n❤️ /fav — sevimli qo'shiqlaringiz\n🔎 Istalgan chatda botning @nomini yozib, qo'shiq nomini qo'shing"
+S["ru"]["help"] += "\n\n🔥 /top — самые популярные песни\n❤️ /fav — ваши любимые песни\n🔎 В любом чате напишите @имя бота и название песни"
+S["en"]["help"] += "\n\n🔥 /top — most popular songs\n❤️ /fav — your favorite songs\n🔎 In any chat type the bot's @name and a song title"

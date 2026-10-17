@@ -79,10 +79,6 @@ class Gate(BaseMiddleware):
         if user.id in config.ADMIN_IDS:
             return await handler(event, data)
 
-        # To'lov xabari har doim o'tadi: Telegram yulduzlarni allaqachon yechgan, premium berilishi shart
-        if isinstance(event, Message) and event.successful_payment is not None:
-            return await handler(event, data)
-
         is_cb = isinstance(event, CallbackQuery)
         bot: Bot = data["bot"]
 
@@ -103,8 +99,7 @@ class Gate(BaseMiddleware):
                 await event.answer(t(lang, "flood"))
             return None
 
-        paid = isinstance(event, Message) and event.successful_payment is not None
-        passthrough = paid or (is_cb and (event.data == "chk" or (event.data or "").startswith("lang:")))
+        passthrough = is_cb and (event.data == "chk" or (event.data or "").startswith("lang:"))
         if not passthrough:
             miss = await missing_channels(bot, user.id)
             if miss:
